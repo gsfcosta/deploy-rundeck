@@ -1,0 +1,109 @@
+stages:
+  - deploy_ldap
+  - deploy_secret
+  - deploy_user
+  - build
+  - deploy
+  - deploy_latest
+  - rollout_deploy
+
+deploy_ldap_job:
+  stage: deploy_ldap
+  image:
+    name: private.registry/bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - export KUBECONFIG=/config.yaml
+    - kubectl apply -f configmag-ldap.yaml
+  rules:
+    - changes:
+        - configmap-ldap.yaml
+
+deploy_secret_job:
+  stage: deploy_secret
+  image:
+    name: private.registry/bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - export KUBECONFIG=/config.yaml
+    - kubectl apply -f ssh-secret.yaml
+  rules:
+    - changes:
+        - ssh-secret.yaml
+
+deploy_user_job:
+  stage: deploy_user
+  image:
+    name: private.registry/bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - export KUBECONFIG=/config.yaml
+    - kubectl apply -f user.yaml
+  rules:
+    - changes:
+        - user.yaml
+
+build_job:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  script:
+    - export http_proxy=http://127.0.0.1:3128
+    - export https_proxy=http://127.0.0.1:3128
+    - docker build --build-arg http_proxy=http://127.0.0.1:3128 --build-arg https_proxy=http://127.0.0.1:3128 -t private.registry/rundeck:$CI_COMMIT_SHA .
+    - docker push private.registry/rundeck:$CI_COMMIT_SHA
+    - docker tag private.registry/rundeck:$CI_COMMIT_SHA private.registry/rundeck:latest
+    - docker push private.registry/rundeck:latest
+  only:
+    changes:
+      - Dockerfile
+
+deploy_job:
+  stage: deploy
+  image: private.registry/alpine/helm:3.11.2
+  variables:
+    DOCKER_HOST: tcp://localhost:2375/
+    DOCKER_DRIVER: overlay2
+    APP_NAME: rundeck
+    NAMESPACE: rundeck
+  script:
+    - export KUBECONFIG=/config.yaml
+    - sed -i "s/IMAGE_TAG/$CI_COMMIT_SHA/g" values.yaml
+    - helm upgrade ${APP_NAME} ./ --values=./values.yaml --namespace ${NAMESPACE}
+  only:
+    changes:
+      - Dockerfile
+
+deploy_latest_job:
+  stage: deploy_latest
+  image: private.registry/alpine/helm:3.11.2
+  variables:
+    DOCKER_HOST: tcp://localhost:2375/
+    DOCKER_DRIVER: overlay2
+    APP_NAME: rundeck
+    NAMESPACE: rundeck
+  script:
+    - export KUBECONFIG=/config.yaml
+    - sed -i "s/IMAGE_TAG/latest/g" grafana.yaml
+    - helm upgrade ${APP_NAME} ./ --values=./values.yaml --namespace ${NAMESPACE}
+  rules:
+    - changes:
+        - Dockerfile
+      when: never
+    - changes:
+      - values.yaml
+
+rollout_deploy_job:
+  stage: rollout_deploy
+  image:
+    name: private.registry/bitnami/kubectl:latest
+    entrypoint: ['']
+  script:
+    - export KUBECONFIG=/config.yaml
+    - kubectl rollout restart deploy/rundeck--rundeck-backend -n rundeck
+  rules:
+    - changes:
+        - user.yaml
+        - ssh-secret.yaml
+        - configmap-ldap.yaml

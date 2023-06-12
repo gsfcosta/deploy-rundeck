@@ -1,0 +1,14 @@
+apiVersion: v2
+description: Rundeck chart for Kubernetes
+name: rundeck
+home: https://github.com/rundeck/rundeck
+version: 1.5.2
+appVersion: 4.10.1
+keywords:
+  - rundeck
+  - jobs
+  - automation
+  - operations
+sources:
+  - https://github.com/EugenMayer/helm-charts/tree/main/charts/rundeck
+  - https://github.com/rundeck/rundeck
